@@ -1,0 +1,3 @@
+rootProject.name='HorizontalNestedScrollView'
+include ':demo'
+include ':horizontalnestedscrollview'
