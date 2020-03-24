@@ -7,7 +7,7 @@ import android.view.*
 import android.widget.EdgeEffect
 import android.widget.FrameLayout
 import android.widget.OverScroller
-import androidx.core.view.ViewCompat
+import androidx.core.view.*
 import androidx.core.widget.EdgeEffectCompat
 import kotlin.math.abs
 import kotlin.math.max
@@ -19,7 +19,7 @@ import kotlin.math.min
  * date: 2020/3/23
  */
 
-class HorizontalNestedScrollView : FrameLayout {
+class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScrollingParent3 {
 
     private val viewConfiguration: ViewConfiguration by lazy { ViewConfiguration.get(context) }
     private val touchSlop: Int by lazy { viewConfiguration.scaledTouchSlop }
@@ -33,6 +33,9 @@ class HorizontalNestedScrollView : FrameLayout {
     private val edgeGlowEnd: EdgeEffect by lazy { EdgeEffect(context) }
     // TODO: adjust over scroll enable.
     private val overScrollEnable: Boolean = true
+
+    private val parentHelper: NestedScrollingParentHelper by lazy { NestedScrollingParentHelper(this) }
+    private val childHelper: NestedScrollingChildHelper by lazy { NestedScrollingChildHelper(this) }
 
     constructor(context: Context) : super(context) {
         initAttrs()
@@ -381,6 +384,103 @@ class HorizontalNestedScrollView : FrameLayout {
                 lp.height)
             child.measure(childWidthSpec, childHeightSpec)
         }
+    }
+
+    override fun onNestedScrollAccepted(child: View, target: View, axes: Int, type: Int) {
+        parentHelper.onNestedScrollAccepted(child, target, axes, type)
+        startNestedScroll(ViewCompat.SCROLL_AXIS_HORIZONTAL, type)
+    }
+
+    override fun onNestedPreScroll(target: View, dx: Int, dy: Int, consumed: IntArray, type: Int) {
+        dispatchNestedPreScroll(dx, dy, consumed, null, type)
+    }
+
+    override fun onStartNestedScroll(child: View, target: View, axes: Int, type: Int): Boolean {
+        return (axes and ViewCompat.SCROLL_AXIS_HORIZONTAL) != 0
+    }
+
+    override fun onNestedScroll(
+        target: View,
+        dxConsumed: Int,
+        dyConsumed: Int,
+        dxUnconsumed: Int,
+        dyUnconsumed: Int,
+        type: Int,
+        consumed: IntArray
+    ) {
+        onNestedScrollInternal(dxUnconsumed, type, consumed)
+    }
+
+    override fun onNestedScroll(
+        target: View,
+        dxConsumed: Int,
+        dyConsumed: Int,
+        dxUnconsumed: Int,
+        dyUnconsumed: Int,
+        type: Int
+    ) {
+        onNestedScrollInternal(dxUnconsumed, type, null)
+    }
+
+    private fun onNestedScrollInternal(dxUnconsumed: Int, type: Int, consumed: IntArray?) {
+        val oldScrollX = scrollX
+        scrollBy(dxUnconsumed, 0)
+        val myConsumedX = scrollX - oldScrollX
+        if (consumed != null) {
+            consumed[0] += myConsumedX
+        }
+        val myUnconsumedX = dxUnconsumed - myConsumedX
+        childHelper.dispatchNestedScroll(myConsumedX, 0, myUnconsumedX, 0, null, type, consumed)
+    }
+
+    override fun onStopNestedScroll(target: View, type: Int) {
+        parentHelper.onStopNestedScroll(target, type)
+        stopNestedScroll(type)
+    }
+
+    override fun dispatchNestedScroll(
+        dxConsumed: Int,
+        dyConsumed: Int,
+        dxUnconsumed: Int,
+        dyUnconsumed: Int,
+        offsetInWindow: IntArray?,
+        type: Int,
+        consumed: IntArray
+    ) {
+        childHelper.dispatchNestedScroll(dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, offsetInWindow, type, consumed)
+    }
+
+    override fun dispatchNestedScroll(
+        dxConsumed: Int,
+        dyConsumed: Int,
+        dxUnconsumed: Int,
+        dyUnconsumed: Int,
+        offsetInWindow: IntArray?,
+        type: Int
+    ): Boolean {
+        return childHelper.dispatchNestedScroll(dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, offsetInWindow, type)
+    }
+
+    override fun dispatchNestedPreScroll(
+        dx: Int,
+        dy: Int,
+        consumed: IntArray?,
+        offsetInWindow: IntArray?,
+        type: Int
+    ): Boolean {
+        return childHelper.dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow, type)
+    }
+
+    override fun stopNestedScroll(type: Int) {
+        childHelper.stopNestedScroll(type)
+    }
+
+    override fun hasNestedScrollingParent(type: Int): Boolean {
+        return childHelper.hasNestedScrollingParent(type)
+    }
+
+    override fun startNestedScroll(axes: Int, type: Int): Boolean {
+        return childHelper.startNestedScroll(axes, type)
     }
 
 
