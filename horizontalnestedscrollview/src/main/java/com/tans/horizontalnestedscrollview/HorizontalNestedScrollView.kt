@@ -34,8 +34,8 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
     // TODO: adjust over scroll enable.
     private val overScrollEnable: Boolean = true
 
-    private val parentHelper: NestedScrollingParentHelper by lazy { NestedScrollingParentHelper(this) }
-    private val childHelper: NestedScrollingChildHelper by lazy { NestedScrollingChildHelper(this) }
+    private val parentHelper: NestedScrollingParentHelper by lazy { NestedScrollingParentHelper(this).apply { isNestedScrollingEnabled = true } }
+    private val childHelper: NestedScrollingChildHelper by lazy { NestedScrollingChildHelper(this).apply { isNestedScrollingEnabled = true } }
 
     constructor(context: Context) : super(context) {
         initAttrs()
@@ -59,10 +59,74 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
     private var activePointerId: Int = -1
     private var isBeingDragged = false
     private var lastScrollerX = 0
+    private var nestedXOffset = 0
 
     override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
-        // TODO: add intercept logic.
-        return true
+
+        val actionMasked = ev?.actionMasked
+        if (actionMasked == MotionEvent.ACTION_MOVE && isBeingDragged) {
+            return true
+        }
+        return when (actionMasked) {
+
+            MotionEvent.ACTION_DOWN -> {
+                val x = (ev.x + 0.5).toInt()
+                if (!inChild(x, (ev.y + 0.5).toInt())) {
+                    isBeingDragged = false
+                    recycleVelocityTracker()
+                    false
+                } else {
+                    lastTouchX = x
+                    activePointerId = ev.getPointerId(0)
+                    initOrResetVelocityTracker()
+                    velocityTracker?.addMovement(ev)
+                    scroller.computeScrollOffset()
+                    isBeingDragged = !scroller.isFinished
+                    startNestedScroll(ViewCompat.SCROLL_AXIS_HORIZONTAL, ViewCompat.TYPE_TOUCH)
+                    isBeingDragged
+                }
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val pointerIndex = ev.findPointerIndex(activePointerId)
+                val x = (ev.getX(pointerIndex) + 0.5).toInt()
+                val dx = abs(lastTouchX - x)
+                if (dx > touchSlop && (nestedScrollAxes and ViewCompat.SCROLL_AXIS_HORIZONTAL) == 0) {
+                    isBeingDragged = true
+                    lastTouchX = x
+                    initVelocityTrackerIfNotExists()
+                    velocityTracker?.addMovement(ev)
+                    nestedXOffset = 0
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                } else {
+                    false
+                }
+            }
+
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
+                isBeingDragged = false
+                activePointerId = -1
+                recycleVelocityTracker()
+                if (scroller.springBack(scrollX, scrollY, 0, getScrollRangeX(), 0, 0)) {
+                    ViewCompat.postInvalidateOnAnimation(this)
+                }
+                stopNestedScroll(ViewCompat.TYPE_TOUCH)
+                false
+            }
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                val actionIndex = ev.actionIndex
+                val currentId = ev.getPointerId(actionIndex)
+                if (currentId == activePointerId) {
+                    val newIndex = if (actionIndex == 0) 1 else 0
+                    activePointerId = ev.getPointerId(newIndex)
+                    lastTouchX = (ev.getX(newIndex) + 0.5).toInt()
+                }
+                false
+            }
+            else -> false
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent?): Boolean {
@@ -71,12 +135,14 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
         var result = true
         if (event != null) {
             val velocityEvent = MotionEvent.obtain(event)
-            // TODO: Do offset
-            // velocityEvent.offsetLocation(0f, 0f)
+
+            velocityEvent.offsetLocation(if (MotionEvent.ACTION_DOWN == event.actionMasked) 0f else nestedXOffset.toFloat(), 0f)
 
             val actionIndex = event.actionIndex
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+
+                    nestedXOffset = 0
 
                     activePointerId = event.getPointerId(actionIndex)
                     lastTouchX = (event.getX(event.findPointerIndex(activePointerId)) + 0.5).toInt()
@@ -89,13 +155,13 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
                     if (childCount == 0) {
                         result = false
                     }
+                    startNestedScroll(ViewCompat.SCROLL_AXIS_HORIZONTAL, ViewCompat.TYPE_TOUCH)
                 }
 
                 MotionEvent.ACTION_MOVE -> {
                     val activeActionIndex = event.findPointerIndex(activePointerId)
                     val x = (event.getX(activeActionIndex) + 0.5).toInt()
                     var dx = lastTouchX - x
-                    lastTouchX = x
                     if (!isBeingDragged && abs(dx) > touchSlop) {
                         parent?.requestDisallowInterceptTouchEvent(true)
                         isBeingDragged = true
@@ -107,10 +173,27 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
                     }
 
                     if (isBeingDragged) {
-                        // TODO: Do dispatchNestedPreScroll
+                        val scrollConsumed = IntArray(2) { 0 }
+                        val scrollOffset = IntArray(2) { 0 }
+                        if (dispatchNestedPreScroll(dx, 0, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)) {
+                            dx -= scrollConsumed[0]
+                            nestedXOffset += scrollOffset[0]
+                        }
+                        lastTouchX = x - scrollOffset[0]
 
                         val oldScrollX = scrollX
-                        overScrollX(dx, scrollX, getScrollRangeX())
+                        if (overScrollX(dx, scrollX, getScrollRangeX())) {
+                            velocityTracker?.clear()
+                        }
+
+                        val scrolledDeltaX = scrollX - oldScrollX
+                        val unconsumedX = dx - scrolledDeltaX
+                        scrollConsumed[0] = 0
+                        dispatchNestedScroll(scrolledDeltaX, 0, unconsumedX, 0, scrollOffset,
+                            ViewCompat.TYPE_TOUCH, scrollConsumed)
+                        lastTouchX -= scrollOffset[0]
+                        nestedXOffset += scrollOffset[0]
+
                         if (overScrollEnable) {
                             val pulledToX = oldScrollX + dx
                             if (pulledToX < 0) {
@@ -140,7 +223,10 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
                     velocityTracker?.computeCurrentVelocity(1000, maxVelocity.toFloat())
                     val velocityX = velocityTracker?.getXVelocity(activePointerId)?.toInt() ?: 0
                     if (abs(velocityX) > minVelocity) {
-                        fling(-velocityX)
+                        if (!dispatchNestedPreFling(-velocityX.toFloat(), 0f)) {
+                            dispatchNestedFling(-velocityX.toFloat(), 0f, true)
+                            fling(-velocityX)
+                        }
                     } else if (scroller.springBack(scrollX, scrollY, 0, getScrollRangeX(), 0, 0)) {
                         ViewCompat.postInvalidateOnAnimation(this)
                     }
@@ -211,7 +297,6 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
         }
     }
 
-    // TODO: Do Nested Scroll.
     override fun computeScroll() {
         if (scroller.isFinished) {
             return
@@ -221,11 +306,21 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
         val dx = x - lastScrollerX
         lastScrollerX = x
         var unconsumed = dx
+        val scrollConsumed = IntArray(2) { 0 }
+        if (dispatchNestedPreScroll(unconsumed, 0, scrollConsumed, null, ViewCompat.TYPE_NON_TOUCH)) {
+            unconsumed -= scrollConsumed[0]
+        }
+
         if (unconsumed != 0) {
             val scrollXBefore = scrollX
             overScrollX(dx, scrollXBefore, getScrollRangeX())
             val scrollAfter = scrollX
-            unconsumed -= scrollAfter - scrollXBefore
+            val scrollByMe = scrollAfter - scrollXBefore
+            unconsumed -= scrollByMe
+            scrollConsumed[0] = 0
+            dispatchNestedScroll(scrollByMe, 0, unconsumed, 0, null,
+                ViewCompat.TYPE_NON_TOUCH, scrollConsumed)
+            unconsumed -= scrollConsumed[0]
         }
         if (unconsumed < 0) {
             if (edgeGlowStart.isFinished) {
@@ -242,6 +337,8 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
 
         if (!scroller.isFinished) {
             ViewCompat.postInvalidateOnAnimation(this)
+        } else {
+            stopNestedScroll(ViewCompat.TYPE_NON_TOUCH)
         }
 
     }
@@ -308,11 +405,10 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
     }
 
     private fun runAnimatedScroll(nestedScrolling: Boolean) {
-        // TODO: Deal nested scroll.
         if (nestedScrolling) {
-
+            startNestedScroll(ViewCompat.SCROLL_AXIS_HORIZONTAL, ViewCompat.TYPE_NON_TOUCH)
         } else {
-
+            stopNestedScroll(ViewCompat.TYPE_NON_TOUCH)
         }
         lastScrollerX = scrollX
         ViewCompat.postInvalidateOnAnimation(this)
@@ -325,6 +421,7 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
         recycleVelocityTracker()
         edgeGlowStart.onRelease()
         edgeGlowEnd.onRelease()
+        stopNestedScroll(ViewCompat.TYPE_TOUCH)
     }
 
     private fun initOrResetVelocityTracker() {
@@ -350,6 +447,16 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
 
     private fun abortAnimatedScroll() {
         scroller.abortAnimation()
+    }
+
+    private fun inChild(x: Int, y: Int): Boolean {
+        return if (childCount > 0) {
+            val scrollX = scrollX
+            val child = getChildAt(0)
+            return !(y < child.top || y >= child.bottom || x < child.left - scrollX || x >= child.right - scrollX)
+        } else {
+            false
+        }
     }
 
     override fun generateLayoutParams(lp: ViewGroup.LayoutParams?): ViewGroup.LayoutParams {
@@ -424,7 +531,8 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
 
     private fun onNestedScrollInternal(dxUnconsumed: Int, type: Int, consumed: IntArray?) {
         val oldScrollX = scrollX
-        scrollBy(dxUnconsumed, 0)
+        // scrollBy(dxUnconsumed, 0)
+        overScrollX(dxUnconsumed, scrollX, getScrollRangeX())
         val myConsumedX = scrollX - oldScrollX
         if (consumed != null) {
             consumed[0] += myConsumedX
@@ -481,6 +589,10 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
 
     override fun startNestedScroll(axes: Int, type: Int): Boolean {
         return childHelper.startNestedScroll(axes, type)
+    }
+
+    override fun getNestedScrollAxes(): Int {
+        return parentHelper.nestedScrollAxes
     }
 
 
