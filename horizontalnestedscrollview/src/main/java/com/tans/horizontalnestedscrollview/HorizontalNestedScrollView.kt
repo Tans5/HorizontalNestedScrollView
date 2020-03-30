@@ -579,6 +579,37 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
         return childHelper.dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow, type)
     }
 
+    override fun dispatchNestedPreFling(velocityX: Float, velocityY: Float): Boolean {
+        return childHelper.dispatchNestedPreFling(velocityX, velocityY)
+    }
+
+    override fun onNestedPreFling(target: View, velocityX: Float, velocityY: Float): Boolean {
+        return dispatchNestedPreFling(velocityX, velocityY)
+    }
+
+    override fun dispatchNestedFling(
+        velocityX: Float,
+        velocityY: Float,
+        consumed: Boolean
+    ): Boolean {
+        return childHelper.dispatchNestedFling(velocityX, velocityY, consumed)
+    }
+
+    override fun onNestedFling(
+        target: View,
+        velocityX: Float,
+        velocityY: Float,
+        consumed: Boolean
+    ): Boolean {
+        return if (!consumed) {
+            dispatchNestedFling(velocityX, velocityY, consumed)
+            fling(-velocityX.toInt())
+            true
+        } else {
+            false
+        }
+    }
+
     override fun stopNestedScroll(type: Int) {
         childHelper.stopNestedScroll(type)
     }
