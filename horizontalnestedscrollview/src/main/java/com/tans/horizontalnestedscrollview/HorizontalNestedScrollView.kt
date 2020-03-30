@@ -197,14 +197,14 @@ class HorizontalNestedScrollView : FrameLayout, NestedScrollingChild3, NestedScr
                         if (overScrollEnable) {
                             val pulledToX = oldScrollX + dx
                             if (pulledToX < 0) {
-                                EdgeEffectCompat.onPull(edgeGlowStart, dx.toFloat() / height.toFloat(),
-                                    event.getY(activeActionIndex) / height.toFloat())
+                                EdgeEffectCompat.onPull(edgeGlowStart, dx.toFloat() / width.toFloat(),
+                                    1f - event.getY(activeActionIndex) / height.toFloat())
                                 if (!edgeGlowEnd.isFinished) {
                                     edgeGlowEnd.onRelease()
                                 }
                             } else if (pulledToX > getScrollRangeX()) {
-                                EdgeEffectCompat.onPull(edgeGlowEnd, dx.toFloat() / height.toFloat(),
-                                    1f - event.getY(activeActionIndex) / height.toFloat())
+                                EdgeEffectCompat.onPull(edgeGlowEnd, dx.toFloat() / width.toFloat(),
+                                    event.getY(activeActionIndex) / height.toFloat())
                                 if (!edgeGlowStart.isFinished) {
                                     edgeGlowStart.onRelease()
                                 }
