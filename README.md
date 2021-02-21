@@ -1,4 +1,4 @@
-## Use
+## Usage
 
 1. Project build.gradle file.
    
